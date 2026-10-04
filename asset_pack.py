@@ -52,6 +52,31 @@ def resource_rows(data):
  types,count=struct.unpack_from('<II',data,4)
  return list(struct.iter_unpack('<7Q6I',data[72+types*32:72+types*32+count*80]))
 
+EMS_PARTICLE=(0xBFE8E0D13DAFBE5E,0xA8193123526FAD64)
+EMS_PARTICLE_SHA256='1cbaea97550c869058b87ddbbede563c9a75276f12a85c8a18c31e3e98e9f953'
+# preview19: shrink the lingering EMS field. Diagnostic recolouring (preview16
+# and preview18) showed the blue smoke and air streaks are systems 15-19 of
+# this effect. Every spatial value of those systems is halved: spawn sphere
+# [3,0,min,max], disc/cylinder radius and height (types 0xD/0xC), sprite size
+# (channel 0x28) and streak range (channel 0x30). Timing, rates and colours stay.
+EMS_FIELD_SCALE=0.5
+EMS_FIELD_VALUES=[
+ (25644,(4.0,12.0)),(25596,(2.0,6.0)),                      # 15: spawn sphere, size
+ (27472,(12.0,)),(27420,(3.0,8.0)),                         # 16: disc radius, size
+ (29352,(4.0,13.0)),(29296,(10.0,)),(29304,(10.0,)),(29260,(1.5,3.0)),  # 17: sphere, cylinder r/h, size
+ (31368,(4.0,11.0)),(31336,(3.0,14.0)),                     # 18: sphere, streak range
+ (33768,(12.0,12.0)),(33736,(3.0,10.0)),                    # 19: sphere, streak range
+]
+
+def shrink_ems_field(data):
+ assert hashlib.sha256(data).hexdigest()==EMS_PARTICLE_SHA256,'EMS particle changed'
+ out=bytearray(data)
+ for offset,values in EMS_FIELD_VALUES:
+  fmt='<%df'%len(values)
+  assert struct.unpack_from(fmt,out,offset)==values
+  struct.pack_into(fmt,out,offset,*(v*EMS_FIELD_SCALE for v in values))
+ return bytes(out)
+
 def merge_asset_archives(folders):
  from collections import Counter
  resources={}
@@ -71,6 +96,9 @@ def merge_asset_archives(folders):
    if row[:2] in resources:
     assert resources[row[:2]][1]==parts,'shared asset bytes differ'
    else:resources[row[:2]]=(row,parts)
+ if EMS_PARTICLE in resources:
+  row,parts=resources[EMS_PARTICLE]
+  resources[EMS_PARTICLE]=(row,(shrink_ems_field(parts[0]),)+parts[1:])
  ordered=sorted(resources.items(),key=lambda item:(item[0][1],item[0][0]))
  counts=Counter(key[1]for key,_ in ordered)
  types=b''.join(struct.pack('<IIQIIII',0,0,kind,count,0,16,16)for kind,count in sorted(counts.items()))

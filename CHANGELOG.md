@@ -1,3 +1,15 @@
+# v1.2.0
+
+- Release based on preview22, retaining native gas / EMS switching, shared ammunition, 163/69 direct damage (AP3) and 0.5-second delayed detonation.
+- Replace separate magazine modes with capacity 1–6 (default 1) and spare magazines 1–6 (default 5). Capacity 1 uses the S-11 reload threshold; held weapons refill to the new spare limit on resupply, and new spawns fully apply the setting.
+- Add EMS field size 50% (default) / 100%, synchronizing explosion range, persistent blue smoke and airborne electric arc strips. At 50%, ranges are 0.5 / 5 / 6 m instead of 1 / 10 / 12 m.
+- EMS field size also affects the EMS Mortar Sentry. Changes are local; another player's resolution uses their original values and their visuals are unaffected.
+- Load packaged 50% effects and synchronize loaded effects in batches, reacquiring them after mission changes. Exit restores packaged 50% values.
+- Use new menu IDs; old saved magazine/range choices are not carried over.
+- Keep GP-31 unmodified and retain existing loader, G-16 and menu dependencies.
+- 49 offline tests pass. The author confirmed preview22 in-game magazine/spare settings and EMS 50% / 100% range and blue-effect switching.
+- Earlier preview12 performance logs measured 19 µs average per frame and 0.97 ms maximum; no new performance benchmark is claimed.
+
 # v1.1.0
 
 - Add native gas / EMS ammo switching with a shared magazine: flechette icon for gas, stun icon for EMS.

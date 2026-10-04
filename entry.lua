@@ -1,5 +1,5 @@
 if rawget(_G,'TongzP35GasSpeargun') then return end
-local state={version='1.1.0',status='INITIALIZING',frames=0}
+local state={version='1.2.0',status='INITIALIZING',frames=0}
 rawset(_G,'TongzP35GasSpeargun',state)
 local loader=rawget(_G,'CowboyBingusModLoader')
 local function report()
@@ -29,8 +29,18 @@ local function report()
   end
   if state.magazine then
    local m=state.magazine
-   f:write('MAGAZINE='..m.status..' mode='..m.mode..' capacity='..m.capacity..' spares='..m.spares..' writes='..m.writes..' MENU='..m.menu_status..'\n')
+   f:write('MAGAZINE='..m.status..' capacity='..m.capacity..' spares='..m.spares..' writes='..m.writes..' MENU='..m.menu_status..'\n')
    if m.error then f:write('MAGAZINE_ERROR='..m.error..'\n') end
+  end
+  if state.ems_radius then
+   local e=state.ems_radius
+   f:write('EMS_RADIUS='..e.status..' percent='..e.percent..' writes='..e.writes..' MENU='..e.menu_status..'\n')
+   if e.error then f:write('EMS_RADIUS_ERROR='..e.error..'\n') end
+  end
+  if state.ems_visual then
+   local v=state.ems_visual
+   f:write('EMS_VISUAL='..v.status..' percent='..tostring(v.percent)..' writes='..v.writes..' found='..v.found..' passes='..v.passes..'\n')
+   if v.error then f:write('EMS_VISUAL_ERROR='..v.error..'\n') end
   end
   if state.perf then
    local p=state.perf
@@ -97,6 +107,8 @@ local ok,err=pcall(function()
   assert(state.projectile_menu.status=='WAITING_FOR_P35',state.projectile_menu.status)
   state.projectile_menu.poll_interval=10
   state.fixed_p35=fixed_projectile.new(api,state.settings,game,ref.alternate_original,{})
+  state.ems_radius=ems_radius.new(api,state.settings,game)
+  state.ems_visual=ems_visual.new(api,ems_visual_spec,state.ems_radius)
   state.policy:start();state.status='APPLYING'
  end
  local function work()
@@ -135,6 +147,8 @@ local ok,err=pcall(function()
    if state.policy.lease then state.fixed_p35:step(state.policy.lease.electromagnetic) end
   end
   if state.magazine then state.magazine:step() end
+  if state.ems_radius then state.ems_radius:step() end
+  if state.ems_visual then state.ems_visual:step() end
   if not state.ready_frame and state.fixed_p35 and state.fixed_p35.status=='READY'
    and state.magazine.status=='APPLIED_MAGAZINE_CAPACITY' then
    state.ready_frame=state.frames
@@ -152,7 +166,11 @@ local ok,err=pcall(function()
   track(3,m and m.status);track(4,m and m.menu_status);track(5,m and m.capacity)
   track(6,l and l.status);track(7,p and p.status);track(8,state.p35_mode_ems)
   track(9,f and f.status);track(10,state.ready_frame)
-  track(11,m and m.mode);track(12,m and m.spares)
+  local e=state.ems_radius
+  track(13,e and e.status);track(14,e and e.percent);track(15,e and e.menu_status)
+  track(18,m and m.spares)
+  local v=state.ems_visual
+  track(16,v and v.status);track(17,v and v.percent)
   return dirty
  end
  local function finish(...)
@@ -181,6 +199,8 @@ local ok,err=pcall(function()
  _G.shutdown=function(...)
   if state.fixed_p35 then pcall(function()state.fixed_p35:stop()end) end
   if state.magazine then pcall(function()state.magazine:stop()end) end
+  if state.ems_radius then pcall(function()state.ems_radius:stop()end) end
+  if state.ems_visual then pcall(function()state.ems_visual:stop()end) end
   if state.policy then pcall(function()state.policy:stop()end) end
   if state.projectile_menu then pcall(function()state.projectile_menu:stop()end) end
   report();if old_shutdown then return old_shutdown(...) end

@@ -4,6 +4,8 @@ import unittest
 from test_lua_runtime import LuaRuntime
 import build
 
+EMS_ROW=struct.pack('<II8x3f',180,451,1.0,10.0,12.0)+bytes(152-28)
+EXPLOSIONS=bytes(5*152)+EMS_ROW+bytes(416*152)
 SHA=b'2e2c3b7c2500646dadd5f2b4c6e0504dbb7e7896139f64cddc0d1813c718f51e'
 
 class StartupTest(unittest.TestCase):
@@ -36,7 +38,7 @@ class StartupTest(unittest.TestCase):
   add(owner+0xF11060,struct.pack('<Q',0x600000));add(0x600000,mm);add(0x600000+len(mm)+mi*160,mr)
   projectiles=(build.HERE/'reference_projectile_table.bin').read_bytes()
   damage=(build.HERE/'reference_damage_table.bin').read_bytes()
-  for rva,offset,base,name,stride,records in [(0x348E2F8,4,0x700000,'ProjectileSettings',272,projectiles),(0x348E1F8,60,0x800000,'DamageSettings',76,damage),(0x348EC88,4,0x900000,'ExplosionSettings',152,bytes(422*152))]:
+  for rva,offset,base,name,stride,records in [(0x348E2F8,4,0x700000,'ProjectileSettings',272,projectiles),(0x348E1F8,60,0x800000,'DamageSettings',76,damage),(0x348EC88,4,0x900000,'ExplosionSettings',152,EXPLOSIONS)]:
    header=struct.pack('<IIII8xQQ',0x444c444c,1,build.dlhash(name),67800 if name=='ExplosionSettings' else 16+len(records),base+offset+40,len(records)//stride)
    add(base+offset,header+records);add(game+rva,struct.pack('<Q',base))
   def projectile(kind):
@@ -44,10 +46,19 @@ class StartupTest(unittest.TestCase):
   ds=(build.HERE/'reference_damage_current.bin').read_bytes();dt=bytearray(ds[76:]);struct.pack_into('<7I',dt,0,67,163,69,3,3,3,3)
   ref={b'map':mapping,b'row':row,b'bolt':bolt,b'bolt_id':struct.pack('<Q',build.BOLT_CANDIDATE),b'jar_projectile':projectile(343),b'bolt_projectile':projectile(125),b'damage_original':ds[:76],b'damage_source':ds[76:],b'damage_target':bytes(dt),b'ems_projectile':projectile(154),b'gas_icon':struct.pack('<Q',0x3B975896BC689499),b'ems_icon':struct.pack('<Q',0x2D9268907FB9420E),b'weapon_map':wm,b'weapon_index':wi,b'weapon_row':wr,b'mag_map':mm,b'mag_index':mi,b'mag_row':mr,b'alternate_type':332,b'alternate_original':projectile(332)}
   gp_ref={b'map':mapping,b'row':gp,b'index':gi,b'id':struct.pack('<Q',0x52E4334E6A128CAF),b'weapon_map':wm,b'weapon_index':gwi,b'weapon_row':gwr,b'projectile_type':263,b'projectile':projectile(263),b'ems_projectile':projectile(154),b'ems_icon':ref[b'ems_icon'],b'alternate_type':333,b'alternate_original':projectile(333)}
-  api=lua.table_from({b'read':read,b'read_blob':read,b'read_module':read,b'pointer':ptr,b'write':write,b'excluded':lambda a,n:False,b'module':lambda name:game,b'module_hash':lambda base:SHA})
+  def query(a):
+   bases=sorted(memory)
+   for base in bases:
+    if base<=a<base+len(memory[base]):return lua.table_from({b'base':base,b'size':len(memory[base]),b'readable':True})
+   nxt=[b for b in bases if b>a]
+   if not nxt:return None,b'end'
+   return lua.table_from({b'base':a,b'size':nxt[0]-a,b'readable':False})
+  api=lua.table_from({b'query':query,b'read':read,b'read_blob':read,b'read_module':read,b'pointer':ptr,b'write':write,b'excluded':lambda a,n:False,b'module':lambda name:game,b'module_hash':lambda base:SHA})
   g=lua.globals();g.api=api;g.ref=lua.table_from(ref);g.gp_ref=lua.table_from(gp_ref);g.jar_id=struct.pack('<Q',build.DOMINATOR)
   lua.execute(b'CowboyBingusModLoader={api=1};update=function()return 123 end;create_api=function()return api end;layout_resolver={new=function()return {status="IDLE",candidates={},step=function()error("full scan invoked")end}end}')
-  for name,file in [(b'bolt_locator','locator.lua'),(b'magazine_menu','magazine_menu.lua'),(b'projectile_sync','projectile_sync.lua'),(b'native_ammo_menu','native_ammo_menu.lua'),(b'fixed_projectile','fixed_projectile.lua')]:g[name]=lua.execute((build.HERE/file).read_bytes())
+  for name,file in [(b'bolt_locator','locator.lua'),(b'magazine_menu','magazine_menu.lua'),(b'projectile_sync','projectile_sync.lua'),(b'native_ammo_menu','native_ammo_menu.lua'),(b'fixed_projectile','fixed_projectile.lua'),(b'ems_radius','ems_radius.lua'),(b'ems_visual','ems_visual.lua')]:g[name]=lua.execute((build.HERE/file).read_bytes())
+  import test_ems_visual
+  g.ems_visual_spec=test_ems_visual.lua_spec(lua,test_ems_visual.particle_spec()[1])
   g.settings_locator=lua.execute((build.HERE.parent.parent/'GL28-Adaptive-Boost/gl28_settings_locator.lua').read_bytes())
   self.lua,self.memory,self.api=lua,memory,api
   return lua
@@ -62,7 +73,10 @@ class StartupTest(unittest.TestCase):
   self.assertEqual(state[b'startup_path'],b'VERIFIED_FAST')
   self.assertLess(state[b'ready_frame'],65)
   self.assertEqual(state[b'fixed_p35'][b'status'],b'READY')
-  self.assertEqual(state[b'magazine'][b'capacity'],3)
+  self.assertEqual((state[b'magazine'][b'capacity'],state[b'magazine'][b'spares']),(1,5))
+  for _ in range(120):lua.globals().update()
+  self.assertEqual(state[b'ems_radius'][b'status'],b'APPLIED')
+  self.assertEqual(struct.unpack('<3f',bytes(self.memory[0x900004][40+5*152+16:40+5*152+28])),(0.5,5.0,6.0))
   self.assertGreater(len(self.writes),0)
   lua.globals().shutdown()
   self.assertEqual({a:bytes(b)for a,b in self.memory.items()},before)

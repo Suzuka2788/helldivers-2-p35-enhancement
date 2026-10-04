@@ -7,7 +7,8 @@ sys.path.insert(0,str(Path(__file__).parent.parent/'test-deps'))
 from lupa.luajit21 import LuaRuntime
 import build
 
-MODE,CAPACITY,SPARES=b'tongz.p35.magazine_mode',b'tongz.p35.magazine_capacity',b'tongz.p35.single_load_spares'
+ID=b'tongz.p35.magazine_capacity_1_6'
+SPARES=b'tongz.p35.spare_magazines'
 
 class MagazineMenuTest(unittest.TestCase):
  def setup_policy(self,delayed=False,saved=None):
@@ -38,63 +39,50 @@ class MagazineMenuTest(unittest.TestCase):
   return module.new(lua.globals().api,0x200000,ref)
  def run_frames(self,policy,n=60):
   for _ in range(n):policy.step(policy)
- def choose(self,option,index):
-  self.lua.globals().callbacks[option](index)
  def row(self):return self.lua.globals().blob[-160:]
  def fields(self):return struct.unpack_from('<6I',self.row(),136)
- def test_options_registered_with_defaults(self):
+ def expected(self,capacity,spares):
+  threshold=0 if capacity==1 else 6
+  return self.original[:136]+struct.pack('<6I',capacity,spares,spares,spares,threshold,0)+self.original[160:]
+ def test_two_options_default_one_by_five(self):
   policy=self.setup_policy();self.run_frames(policy,420)
   self.assertEqual(policy.menu_status,b'REGISTERED')
   specs=self.lua.globals().specs
-  self.assertEqual(list(specs[MODE].choices.values()),[b'Magazine',b'Single load'])
-  self.assertEqual(list(specs[CAPACITY].choices.values()),[b'2',b'3',b'4',b'5',b'6'])
-  self.assertEqual(list(specs[SPARES].choices.values()),[b'1',b'2',b'3',b'4',b'5',b'6'])
-  self.assertEqual((specs[MODE].default,specs[CAPACITY].default,specs[SPARES].default),(1,2,6))
-  self.assertEqual(policy.mode,b'MAGAZINE');self.assertEqual(self.fields(),(3,2,2,2,6,0))
- def test_magazine_choices_only_change_capacity_and_restore(self):
+  self.assertEqual(sorted(specs.keys()),sorted([ID,SPARES]))
+  for key in (ID,SPARES):self.assertEqual(list(specs[key].choices.values()),[b'1',b'2',b'3',b'4',b'5',b'6'])
+  self.assertEqual((specs[ID].default,specs[SPARES].default),(1,5))
+  self.assertEqual(self.fields(),(1,5,5,5,0,0))
+ def test_every_combination_and_restore(self):
   policy=self.setup_policy();self.run_frames(policy,420)
-  for capacity in [2,3,4,5,6,2]:
-   self.choose(CAPACITY,capacity-1);self.run_frames(policy)
-   expected=self.mapping+bytes(self.index*160)+self.original[:136]+struct.pack('<I',capacity)+self.original[140:]
-   self.assertEqual(self.lua.globals().blob,expected)
+  for capacity in range(1,7):
+   for spares in range(1,7):
+    self.lua.globals().callbacks[ID](capacity);self.lua.globals().callbacks[SPARES](spares);self.run_frames(policy)
+    self.assertEqual(self.row(),self.expected(capacity,spares))
+  self.assertEqual(self.expected(6,2),self.original)
+  self.lua.globals().callbacks[ID](1);self.run_frames(policy)
   policy.stop(policy)
   self.assertEqual(policy.status,b'MAGAZINE_RESTORED')
   self.assertEqual(self.lua.globals().blob,self.mapping+bytes(self.index*160)+self.original)
- def test_single_load_spares_one_to_six(self):
-  policy=self.setup_policy();self.run_frames(policy,420)
-  self.choose(MODE,2);self.run_frames(policy)
-  self.assertEqual(policy.mode,b'SINGLE_LOAD');self.assertEqual(self.fields(),(1,6,6,6,0,0))
-  for spares in [1,2,3,4,5,6,1]:
-   self.choose(SPARES,spares);self.run_frames(policy)
-   self.assertEqual(self.fields(),(1,spares,spares,spares,0,0))
-   self.assertEqual(self.row()[:136],self.original[:136])
-  # The capacity option is ignored while single load is active.
-  self.choose(CAPACITY,4);self.run_frames(policy);self.assertEqual(self.fields(),(1,1,1,1,0,0))
-  self.choose(MODE,1);self.run_frames(policy);self.assertEqual(self.fields(),(5,2,2,2,6,0))
-  self.choose(MODE,2);self.run_frames(policy)
-  policy.stop(policy)
-  self.assertEqual(policy.status,b'MAGAZINE_RESTORED');self.assertEqual(self.row(),self.original)
- def test_saved_single_load_applies_on_start(self):
-  policy=self.setup_policy(saved={MODE:2,SPARES:3});self.run_frames(policy,420)
-  self.assertEqual(self.fields(),(1,3,3,3,0,0));self.assertEqual(policy.status,b'APPLIED_MAGAZINE_CAPACITY')
+ def test_saved_choices_apply_on_start(self):
+  policy=self.setup_policy(saved={ID:4,SPARES:3});self.run_frames(policy,420)
+  self.assertEqual(self.fields(),(4,3,3,3,6,0))
  def test_delayed_menu_and_invalid_values(self):
   policy=self.setup_policy(delayed=True);self.run_frames(policy,420)
   self.assertEqual(policy.menu_status,b'WAITING')
   self.lua.globals().ModOptionsMenu=self.lua.globals().menu
   self.run_frames(policy);self.assertEqual(policy.menu_status,b'REGISTERED')
-  for value in [0,7,2.5,b'3']:self.assertFalse(policy.set_capacity(policy,value)[0])
-  for value in [0,7,1.5,b'3']:self.assertFalse(policy.set_spares(policy,value)[0])
-  self.assertFalse(policy.set_mode(policy,b'OTHER')[0])
-  self.choose(MODE,3);self.choose(SPARES,0);self.choose(SPARES,7)
-  self.assertEqual((policy.mode,policy.capacity,policy.spares),(b'MAGAZINE',3,6))
- def test_default_three_without_menu(self):
+  for value in [0,7,2.5,b'3']:
+   self.assertFalse(policy.set_capacity(policy,value)[0]);self.assertFalse(policy.set_spares(policy,value)[0])
+  for key in (ID,SPARES):self.lua.globals().callbacks[key](0);self.lua.globals().callbacks[key](7)
+  self.assertEqual((policy.capacity,policy.spares),(1,5))
+ def test_default_one_by_five_without_menu(self):
   policy=self.setup_policy(delayed=True);self.run_frames(policy,420)
-  self.assertEqual(self.fields(),(3,2,2,2,6,0))
+  self.assertEqual(self.fields(),(1,5,5,5,0,0))
  def test_external_change_refuses_overwrite(self):
   policy=self.setup_policy();self.run_frames(policy,420)
   writes=self.lua.globals().writes
   self.lua.globals().blob=b'X'+self.lua.globals().blob[1:]
-  self.choose(MODE,2);self.run_frames(policy)
+  self.lua.globals().callbacks[SPARES](6);self.run_frames(policy)
   self.assertEqual(policy.status,b'MAGAZINE_CONTEXT_CHANGED_NO_WRITE')
   self.assertEqual(self.lua.globals().writes,writes)
 if __name__=='__main__':unittest.main()

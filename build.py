@@ -14,7 +14,7 @@ PROJECTILES = DEV / '.research/filediver-current/datalibrary/generated_projectil
 LIVE_PROJECTILES = HERE / 'reference_projectiles_current.bin'
 HELPER = DEV / '.research/BingusSharedLoader/scripts/build_addon.py'
 ROOT = DEV / 'mod'
-OUT = HERE / 'Suzukas-P35-enhancement-v1.1.0.zip'
+OUT = HERE / 'Suzukas-P35-enhancement-v1.2.0.zip'
 RESOURCE = 'mods/tongz/p35_gas_speargun'
 GUID = 'b5212072-a28e-463b-bad8-f426012a6135'
 DOMINATOR = 0x0B882808C6F498E8
@@ -90,6 +90,8 @@ def build():
         (HERE / 'magazine_menu.lua', 'magazine_menu'),
         (HERE / 'native_ammo_menu.lua', 'native_ammo_menu'),
         (HERE / 'fixed_projectile.lua', 'fixed_projectile'),
+        (HERE / 'ems_radius.lua', 'ems_radius'),
+        (HERE / 'ems_visual.lua', 'ems_visual'),
         (HERE / 'projectile_sync.lua', 'projectile_sync'),
         (HERE / 'windows_api.lua', 'create_api'),
     ]:
@@ -128,6 +130,17 @@ def build():
         row,=[current[o:o+272]for o in range(0,len(current),272)if struct.unpack_from('<I',current,o)[0]==kind]
         reserved[kind]=row
     source += f'ref.alternate_type=332;ref.alternate_original=unhex("{reserved[332].hex()}")\n'
+    # Shipped (baked) EMS particle and the spatial fields ems_visual rescales.
+    import asset_pack
+    ems_base = asset_pack.HERE / 'assets/ems_effect'
+    ems_name = json.loads((ems_base / 'provenance.json').read_text())['source_archive']
+    ems_data = (ems_base / ems_name).read_bytes()
+    ems_row, = [r for r in asset_pack.resource_rows(ems_data) if r[:2] == asset_pack.EMS_PARTICLE]
+    ems_baked = asset_pack.shrink_ems_field(ems_data[ems_row[2]:ems_row[2] + ems_row[7]])
+    fields = ','.join('{%d,{%s}}' % (o, ','.join(repr(v) for v in values))
+                      for o, values in sorted(asset_pack.EMS_FIELD_VALUES))
+    source += (f'local ems_visual_spec={{baked=unhex("{ems_baked.hex()}"),'
+               f'baked_percent={round(asset_pack.EMS_FIELD_SCALE * 100)},fields={{{fields}}}}}' + chr(10))
     source += f'local jar_id=unhex("{struct.pack("<Q", DOMINATOR).hex()}")\n'
     source += (HERE / 'entry.lua').read_text(encoding='utf-8')
     payload = source.encode('utf-8')

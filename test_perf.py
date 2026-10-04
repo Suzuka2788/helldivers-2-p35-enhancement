@@ -9,7 +9,8 @@ import build
 HERE = Path(__file__).resolve().parent
 MODULES = [(b'bolt_locator', 'locator.lua'), (b'magazine_menu', 'magazine_menu.lua'),
            (b'projectile_sync', 'projectile_sync.lua'), (b'native_ammo_menu', 'native_ammo_menu.lua'),
-           (b'grenade_pistol', 'grenade_pistol.lua'), (b'fixed_projectile', 'fixed_projectile.lua')]
+           (b'grenade_pistol', 'grenade_pistol.lua'), (b'fixed_projectile', 'fixed_projectile.lua'),
+           (b'ems_radius', 'ems_radius.lua'), (b'ems_visual', 'ems_visual.lua')]
 BASELINE = Path(__file__).resolve().parent.parent  # preview10, which still drives GP-31
 STEADY = 3600
 

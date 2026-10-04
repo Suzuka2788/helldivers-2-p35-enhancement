@@ -4,7 +4,7 @@ import json
 import unittest
 import zipfile
 import build
-from asset_pack import HERE,merged_package,parse_package,rh,without_shared_audio,SHARED_G16_AUDIO
+from asset_pack import HERE,merged_package,parse_package,rh,without_shared_audio,SHARED_G16_AUDIO,EMS_PARTICLE,EMS_FIELD_VALUES,shrink_ems_field
 
 def rows(data):
  magic,types,count=struct.unpack_from('<III',data)
@@ -53,6 +53,7 @@ class AssetPackTest(unittest.TestCase):
      for r in rows(native[0]):
       if r[:2]!=SHARED_G16_AUDIO:
        expected[r[:2]]=tuple(data[off:off+size]for data,off,size in zip(native,r[2:5],r[7:10]))
+    expected[EMS_PARTICLE]=(shrink_ems_field(expected[EMS_PARTICLE][0]),)+expected[EMS_PARTICLE][1:]
     self.assertEqual(actual,expected)
  def test_g16_resource_sets_do_not_overlap(self):
   def resources(z):
@@ -99,4 +100,27 @@ class AssetPackTest(unittest.TestCase):
      if record[7]:ranges.append((record[5],record[5]+record[7]))
     ranges.sort()
     self.assertTrue(all(a[1]<=b[0]for a,b in zip(ranges,ranges[1:])))
+ def test_ems_field_spatial_values_halved_only(self):
+  self.assertEqual(EMS_PARTICLE[1],rh('particles'))
+  base=HERE/'assets/ems_effect';name=json.loads((base/'provenance.json').read_text())['source_archive']
+  data=(base/name).read_bytes()
+  record,=[r for r in rows(data)if r[:2]==EMS_PARTICLE]
+  original=data[record[2]:record[2]+record[7]]
+  patched=shrink_ems_field(original)
+  allowed=set()
+  for o,values in EMS_FIELD_VALUES:
+   allowed|=set(range(o,o+4*len(values)))
+   self.assertEqual(struct.unpack_from('<%df'%len(values),patched,o),tuple(v/2 for v in values))
+  self.assertEqual(len(patched),len(original))
+  self.assertTrue(all(original[i]==patched[i] for i in range(len(original)) if i not in allowed))
+  with zipfile.ZipFile(build.OUT)as z:
+   packed=z.read('Addon/1b006880ac88d1cd.patch_0')
+   r,=[r for r in rows(packed)if r[:2]==EMS_PARTICLE]
+   self.assertEqual(packed[r[2]:r[2]+r[7]],patched)
+  # Every other EMS particle (including the blue loops) is shipped unmodified.
+  others=[r for r in rows(packed)if r[1]==rh('particles') and r[:2]!=EMS_PARTICLE]
+  natives={}
+  for r in rows(data):natives[r[:2]]=data[r[2]:r[2]+r[7]]
+  for r in others:
+   if r[:2] in natives:self.assertEqual(packed[r[2]:r[2]+r[7]],natives[r[:2]])
 if __name__=='__main__':unittest.main()

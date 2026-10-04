@@ -1,17 +1,18 @@
--- P-35 magazine settings and ModOptionsMenu integration.
+-- P-35 magazine capacity / spare magazines and ModOptionsMenu integration.
 -- Row +136..+159: capacity, magazines, magazines_refill, magazines_max,
 -- reload_threshold, chambered (WeaponMagazineComponentData, 160-byte rows).
 local M={}
-local MODE_ID='tongz.p35.magazine_mode'
-local CAPACITY_ID='tongz.p35.magazine_capacity'
-local SPARE_ID='tongz.p35.single_load_spares'
+local CAPACITY_ID='tongz.p35.magazine_capacity_1_6'
+local SPARES_ID='tongz.p35.spare_magazines'
 local MOD='Suzuka‘s P35 enhancement'
 local function pack(v)
  return string.char(v%256,math.floor(v/256)%256,math.floor(v/65536)%256,math.floor(v/16777216)%256)
 end
+local function whole(value,low,high)
+ return type(value)=='number' and value%1==0 and value>=low and value<=high
+end
 function M.new(api,owner,ref,fast_slot)
- local s={status='SCANNING',menu_status='WAITING',mode='MAGAZINE',capacity=3,spares=6,
-  slot=0,seen={},hits={},frames=0,writes=0}
+ local s={status='SCANNING',menu_status='WAITING',capacity=1,spares=5,slot=0,seen={},hits={},frames=0,writes=0}
  local original=ref.mag_row:sub(137,160)
  local function context(hit)
   return api.pointer(api.read(hit.slot,8))==hit.table
@@ -20,14 +21,13 @@ function M.new(api,owner,ref,fast_slot)
  local function expected(hit)
   return ref.mag_row:sub(1,136)..hit.settings
  end
- -- Magazine mode changes only the capacity. Single load follows the S-11
- -- speargun pattern: one round, no reload threshold, spares = start = max = refill.
+ -- Spares set start, refill and maximum alike (vanilla P-35 is 2/2/2). A
+ -- one-round magazine uses the S-11 speargun's reload threshold of 0; 2-6
+ -- rounds keep the vanilla threshold.
  local function desired(self)
-  if self.mode=='SINGLE_LOAD' then
-   local n=pack(self.spares)
-   return pack(1)..n..n..n..pack(0)..original:sub(21,24)
-  end
-  return pack(self.capacity)..original:sub(5)
+  local n=pack(self.spares)
+  local threshold=self.capacity==1 and pack(0) or original:sub(17,20)
+  return pack(self.capacity)..n..n..n..threshold..original:sub(21,24)
  end
  local function probe(slot)
   local at=api.pointer(api.read(slot,8))
@@ -42,22 +42,14 @@ function M.new(api,owner,ref,fast_slot)
   probe(owner+fast_slot)
   if #s.hits==1 then s.status='READY';s.path='VERIFIED_FAST' end
  end
- local function whole(value,low,high)
-  return type(value)=='number' and value%1==0 and value>=low and value<=high
- end
  function s:set_capacity(value)
-  if not whole(value,2,6) then return false,'invalid_capacity' end
+  if not whole(value,1,6) then return false,'invalid_capacity' end
   self.capacity=value
   return true
  end
  function s:set_spares(value)
   if not whole(value,1,6) then return false,'invalid_spares' end
   self.spares=value
-  return true
- end
- function s:set_mode(value)
-  if value~='MAGAZINE' and value~='SINGLE_LOAD' then return false,'invalid_mode' end
-  self.mode=value
   return true
  end
  local function menu(self)
@@ -68,14 +60,11 @@ function M.new(api,owner,ref,fast_slot)
    self.menu_status='INCOMPATIBLE';return
   end
   local options={
-   {MODE_ID,{type='choice',mod=MOD,label='Magazine mode',choices={'Magazine','Single load'},default=1,
-    description='Magazine: capacity below, 2 spare magazines. Single load: 1 round per load, spare count below.'},
-    function(i) if i==1 or i==2 then self:set_mode(i==1 and 'MAGAZINE' or 'SINGLE_LOAD') end end},
-   {CAPACITY_ID,{type='choice',mod=MOD,label='Magazine capacity',choices={'2','3','4','5','6'},default=2,
-    description='Magazine mode only. Apply, then reload to use the new capacity.'},
-    function(i) if whole(i,1,5) then self:set_capacity(i+1) end end},
-   {SPARE_ID,{type='choice',mod=MOD,label='Single load spare magazines',choices={'1','2','3','4','5','6'},default=6,
-    description='Single load mode only. Full effect on the next weapon spawn or resupply.'},
+   {CAPACITY_ID,{type='choice',mod=MOD,label='Magazine capacity',choices={'1','2','3','4','5','6'},default=1,
+    description='Rounds per P-35 magazine. Apply, then reload to use the new capacity.'},
+    function(i) if whole(i,1,6) then self:set_capacity(i) end end},
+   {SPARES_ID,{type='choice',mod=MOD,label='Spare magazines',choices={'1','2','3','4','5','6'},default=5,
+    description='Spare P-35 magazines carried, maximum and resupply amount. Full effect on the next weapon spawn or resupply.'},
     function(i) if whole(i,1,6) then self:set_spares(i) end end},
   }
   for _,o in ipairs(options) do
